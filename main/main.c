@@ -9,13 +9,17 @@
 #define PIN_MISO 19 //data from radio to esp
 #define PIN_MOSI 23 //data from esp to radio
 #define PIN_CLK 18 //clock
-#define PIN_CSN 5
-#define PIN_CE 4
+#define PIN_CSN 5 //chip select (active low)
+#define PIN_CE 4 //chip enable
 
 /**
  * function to assign pins and configure buses
+ * 
+ * This function prepares the SPI bus configuration structure.
+ * It does NOT initialize the bus itself — that is done later
+ * by spi_bus_initialize().
  */
-spi_bus_config_t bus_configuration() 
+static spi_bus_config_t bus_configuration(void) 
 {
     printf("Inicializacia busov\n");
 
@@ -37,7 +41,9 @@ spi_bus_config_t bus_configuration()
 }
 
 /**
- * reads a single byte from specific nrf register
+ * Performs a single SPI transaction:
+ *  byte 0: register command + register address
+ *  byte 1: dummy byte to keep the communication flowing
  * 
  * @param SPI device handle
  *  
@@ -68,7 +74,12 @@ uint8_t read_nrf_register(spi_device_handle_t handle, uint8_t reg_addr)
     return transaction_container.rx_data[1];
 }
 
-spi_device_interface_config_t device_configuration()
+/**
+ * basic chip configuration
+ * 
+ * Describes how the esp talks to nrf over already initialized connections
+ */
+static spi_device_interface_config_t device_configuration(void)
 {
     //configure the device
     spi_device_interface_config_t dev_config = {
@@ -81,6 +92,8 @@ spi_device_interface_config_t device_configuration()
 }
 
 /**
+ * Writes a single byte to a specific nrf register
+ * 
  * @param SPI device handle
  * 
  * @param registeradress to write to
@@ -100,52 +113,93 @@ void write_nrf_register(spi_device_handle_t handle, uint8_t register_address, ui
     spi_device_transmit(handle, &transaction_container);
 }
 
+/**
+ * Calls a function that assigns pins and then initializes 
+ * SPi with them
+ */
+static esp_err_t init_spi_bus(void)
+{
+    spi_bus_config_t bus_cfg = bus_configuration(); //
+    return spi_bus_initialize(SPI2_HOST, &bus_cfg, SPI_DMA_CH_AUTO);
+}
+
+/**
+ * nrf device inicialization and attaches the device to the already created SPI bus
+ */
+static esp_err_t init_nrf_device(spi_device_handle_t *radio)
+{
+    //configure the device
+    spi_device_interface_config_t dev_config = device_configuration();
+    return spi_bus_add_device(SPI2_HOST, &dev_config, radio);
+}
+
+
+/**
+ * checks if we've successfuly communicated with the nrf module
+ * reads the register to check for reset values
+ * 
+ * @param nrf structure with components
+ */
+static void test_nrf_connection(spi_device_handle_t radio)
+{
+    //try to read register
+    //by default the register should be at 0x00
+    uint8_t config_value = read_nrf_register(radio, 0x00);
+
+    printf("Read CONFIG Register (0x00): 0x%02X\n", config_value);
+    
+    if (config_value == 0x08 || config_value == 0x0E || config_value == 0x0F) {
+        printf("[TEST PASSED] NRF24 is wired correctly and responding!\n");
+    } else if (config_value == 0x00 || config_value == 0xFF) {
+        printf("[TEST FAILED] NRF24 is silent. Check your wiring (MISO/MOSI).\n");
+    } else {
+        printf("[WARNING] NRF24 responded, but value is unexpected.\n");
+    }
+}
+
+/**
+ * configures the ce pin used to control the radio state
+ * CE low keeps the radio disabled
+ */
+static void init_ce_pin(void)
+{
+    //ce pin as output
+    gpio_set_direction(PIN_CE, GPIO_MODE_OUTPUT);
+    gpio_set_level(PIN_CE, 0); // Start with radio disabled (Low)
+}
+
+/**
+ * infinite loop to prevent the application from exitting
+ */
+static void keep_alive_loop(void)
+{
+    //continuous loop to stop the esp from sleeping
+    while (1) {
+        vTaskDelay(pdMS_TO_TICKS(1000)); // Sleep for 1 second
+    }
+}
+
 void app_main(void)
 {
-    
-    spi_bus_config_t bus_cfg = bus_configuration();
-
-    esp_err_t status_message = spi_bus_initialize(SPI2_HOST, &bus_cfg, SPI_DMA_CH_AUTO);
+    esp_err_t status_message = init_spi_bus();
 
     if (status_message == ESP_OK) {
         printf("[SUCCESS] SPI Bus is active on pins 18, 19, 23.\n");
 
-        //configure the device
-        spi_device_interface_config_t dev_config = device_configuration();
-
         spi_device_handle_t radio; //inititalization nrf card
-        esp_err_t status_message_nrf = spi_bus_add_device(SPI2_HOST, &dev_config, &radio);
+        esp_err_t status_message_nrf = init_nrf_device(&radio);
 
         if (status_message_nrf == ESP_OK) {
             printf("NRF24 Device successfully added to the bus!\n");
-
-            //try to read register
-            //by default the register should be at 0x00
-            uint8_t config_value = read_nrf_register(radio, 0x00);
-
-            printf("Read CONFIG Register (0x00): 0x%02X\n", config_value);
-            
-            if (config_value == 0x08 || config_value == 0x0E || config_value == 0x0F) {
-                printf("[TEST PASSED] NRF24 is wired correctly and responding!\n");
-            } else if (config_value == 0x00 || config_value == 0xFF) {
-                printf("[TEST FAILED] NRF24 is silent. Check your wiring (MISO/MOSI).\n");
-            } else {
-                printf("[WARNING] NRF24 responded, but value is unexpected.\n");
-            }
-
+            test_nrf_connection(radio);
         } else {
-            printf("Failed to add NRF24 device. Error: %s\n", esp_err_to_name(status_message_nrf));
+            printf("Failed to add NRF24 device. Error: %s\n",
+                   esp_err_to_name(status_message_nrf));
         }
     } else {
         printf("[FAIL] Could not init SPI. Error code: %d\n", status_message);
     }
 
-    //ce pin as output
-    gpio_set_direction(PIN_CE, GPIO_MODE_OUTPUT);
-    gpio_set_level(PIN_CE, 0); // Start with radio disabled (Low)
-
-    //continuous loop to stop the esp from sleeping
-    while(1) {
-        vTaskDelay(pdMS_TO_TICKS(1000)); // Sleep for 1 second
-    }
+    init_ce_pin();
+    keep_alive_loop();
 }
