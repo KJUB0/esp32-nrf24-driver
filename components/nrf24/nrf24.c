@@ -1,6 +1,7 @@
 #include "nrf24.h"
 #include <stdio.h>
 #include <string.h>
+#include "esp_system.h"
 
 /**
  * basic chip configuration
@@ -64,12 +65,11 @@ void write_nrf_register(nrf24_t *nrf, uint8_t register_address, uint8_t value)
 
 esp_err_t nrf_attach(spi_host_device_t host, gpio_num_t csn_pin, gpio_num_t ce_pin, nrf24_t *out)
 {
-    // Configure CE pin
     gpio_reset_pin(ce_pin);
     gpio_set_direction(ce_pin, GPIO_MODE_OUTPUT);
     gpio_set_level(ce_pin, 0);
 
-    // Configure SPI Device - POZOR: Tu musíme poslať CSN pin, nie CE pin!
+    // Configure SPI Device
     spi_device_interface_config_t cfg = device_configuration(csn_pin);
     
     // Add device to bus
@@ -97,4 +97,40 @@ void nrf_init(nrf24_t *nrf)
     value = 0x0E; 
     address = 0x06; // RF_SETUP register
     write_nrf_register(nrf, address, value);
+
+    // call the function that powers up the nrf moduke and sets crc to 
+    // and PRIM_RX to 1
+    nrf_power_up(nrf);
+
+    // start listening
+    gpio_set_level(nrf->ce_pin, 1);
+}
+
+/**
+ * Sets the power bit to 1 and also the crc and rx
+ * 
+ * @param nrf structure with components
+ */
+void nrf_power_up(nrf24_t *nrf)
+{
+    write_nrf_register(nrf, NRF_REG_CONFIG, 0X0B);
+
+    // delay to wait for the radio to power on
+    ets_delay_us(2000);
+}
+
+/**
+ * Functions that writes for activity to a certainchannel, waits 150µs and then 
+ * returns true for activity false for silence
+ * 
+ * @param nrf radio structure with components
+ * 
+ * @param channel that we want to listen for activity on
+ */
+bool nrf_channel_busy(nrf24_t *nrf, uint8_t channel)
+{
+    write_nrf_register(nrf, NRF_REG_RF_CH, channel);
+    ets_delay_us(150);
+    uint8_t rpd = read_nrf_register(nrf, NRF_REG_RPD);
+    return (rpd & 0x01);
 }

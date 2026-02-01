@@ -8,6 +8,7 @@
 // Register definitions
 #define NRF_REG_CONFIG      0x00
 #define NRF_REG_EN_AA       0x01
+#define NRF_REG_SETUP_RETR  0x04
 #define NRF_REG_RF_CH       0x05
 #define NRF_REG_RF_SETUP    0x06
 #define NRF_REG_RPD         0x09
@@ -36,3 +37,6 @@ void write_nrf_register(nrf24_t *nrf, uint8_t reg_addr, uint8_t value);
 
 // reads value from register
 uint8_t read_nrf_register(nrf24_t *nrf, uint8_t reg_addr);
+
+// detects activity on certain channel
+bool nrf_channel_busy(nrf24_t *nrf, uint8_t channel);
