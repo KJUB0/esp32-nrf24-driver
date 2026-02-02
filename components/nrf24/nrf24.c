@@ -148,9 +148,7 @@ void nrf_scan_band(nrf24_t *nrf, uint16_t *hit_counter, size_t len)
         // switch channel
         write_nrf_register(nrf, NRF_REG_RF_CH, channel);
         
-        // clear interrupts/flush to ensure clean state (Optional but recommended)
         // write_nrf_register(nrf, 0x07, 0x70); 
-
         // wait for PLL lock + RPD sampling time
         esp_rom_delay_us(150); 
         
