@@ -83,6 +83,26 @@ static void test_nrf_connection(nrf24_t *radio)
     }
 }
 
+void print_histogram(uint16_t *hit_counter, size_t len)
+{
+    uint16_t maximum = 0;
+    uint16_t maximum_channel = 0;
+    for (uint16_t i = 0; i < len; i++) {
+        if (hit_counter[i] > maximum) {
+            maximum = hit_counter[i];
+            maximum_channel = i;
+        }
+    }
+
+    for (int i = maximum; i > 0; i--) {
+        for (uint16_t j = 0; j < len; j++) {
+            if (hit_counter[i] >= i)
+                printf("#");
+        }
+        printf("\n");
+    }
+}
+
 void app_main(void)
 {
     esp_err_t status_message = init_spi_bus();
@@ -101,6 +121,13 @@ void app_main(void)
             test_nrf_connection(&radio); // pass pointer to struct
             
             nrf_init(&radio); // call lib init
+
+            while (1) {
+                uint16_t hit_counter[127];
+                size_t band_len = 126;
+                nrf_scan_band(&radio, &hit_counter, band_len);
+            }
+
         } else {
             printf("Failed to add NRF24 device. Error: %s\n",
                    esp_err_to_name(status_message_nrf));

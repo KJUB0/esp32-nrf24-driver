@@ -38,5 +38,5 @@ void write_nrf_register(nrf24_t *nrf, uint8_t reg_addr, uint8_t value);
 // reads value from register
 uint8_t read_nrf_register(nrf24_t *nrf, uint8_t reg_addr);
 
-// detects activity on certain channel
-bool nrf_channel_busy(nrf24_t *nrf, uint8_t channel);
+// loops through the whole bluetooth spectrum and detects hits on channels
+void nrf_scan_band(nrf24_t *nrf, uint16_t *hit_counter, size_t len);

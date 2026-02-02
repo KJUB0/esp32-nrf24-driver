@@ -124,7 +124,6 @@ void nrf_power_up(nrf24_t *nrf)
  * returns true for activity false for silence
  * 
  * @param nrf radio structure with components
- * 
  * @param channel that we want to listen for activity on
  */
 bool nrf_channel_busy(nrf24_t *nrf, uint8_t channel)
@@ -133,4 +132,20 @@ bool nrf_channel_busy(nrf24_t *nrf, uint8_t channel)
     ets_delay_us(150);
     uint8_t rpd = read_nrf_register(nrf, NRF_REG_RPD);
     return (rpd & 0x01);
+}
+
+/**
+ * one spectrum sweep that adds hits when a noise is detected
+ * 
+ * @param nrf radio structure
+ * @param counts hits (found noise on a channel)
+ * @param len size of the spectrum
+ */
+void nrf_scan_band(nrf24_t *nrf, uint16_t *hit_counter, size_t len)
+{
+    for (unsigned int channel = 0; channel < len; channel++) {
+        if (nrf_channel_busy(nrf, channel)) {
+            hit_counter[len]++;
+        }
+    }
 }
