@@ -2,6 +2,7 @@
 #include <stdio.h>
 #include <string.h>
 #include "esp_system.h"
+#include "esp_rom_sys.h"
 
 /**
  * basic chip configuration
@@ -82,6 +83,19 @@ esp_err_t nrf_attach(spi_host_device_t host, gpio_num_t csn_pin, gpio_num_t ce_p
 }
 
 /**
+ * Sets the power bit to 1 and also the crc and rx
+ * 
+ * @param nrf structure with components
+ */
+void nrf_power_up(nrf24_t *nrf)
+{
+    write_nrf_register(nrf, NRF_REG_CONFIG, 0X0B);
+
+    // delay to wait for the radio to power on
+    esp_rom_delay_us(2000);
+}
+
+/**
  * disables enhanced shockburst and sets data rate to 1Mbps
  * * @param nrf structure with components
  */
@@ -107,19 +121,6 @@ void nrf_init(nrf24_t *nrf)
 }
 
 /**
- * Sets the power bit to 1 and also the crc and rx
- * 
- * @param nrf structure with components
- */
-void nrf_power_up(nrf24_t *nrf)
-{
-    write_nrf_register(nrf, NRF_REG_CONFIG, 0X0B);
-
-    // delay to wait for the radio to power on
-    ets_delay_us(2000);
-}
-
-/**
  * Functions that writes for activity to a certainchannel, waits 150µs and then 
  * returns true for activity false for silence
  * 
@@ -129,13 +130,13 @@ void nrf_power_up(nrf24_t *nrf)
 bool nrf_channel_busy(nrf24_t *nrf, uint8_t channel)
 {
     write_nrf_register(nrf, NRF_REG_RF_CH, channel);
-    ets_delay_us(150);
+    esp_rom_delay_us(150);
     uint8_t rpd = read_nrf_register(nrf, NRF_REG_RPD);
     return (rpd & 0x01);
 }
 
 /**
- * one spectrum sweep that adds hits when a noise is detected
+ * one spectrum sweep that adds hits when noise is detected
  * 
  * @param nrf radio structure
  * @param counts hits (found noise on a channel)
@@ -143,9 +144,20 @@ bool nrf_channel_busy(nrf24_t *nrf, uint8_t channel)
  */
 void nrf_scan_band(nrf24_t *nrf, uint16_t *hit_counter, size_t len)
 {
-    for (unsigned int channel = 0; channel < len; channel++) {
-        if (nrf_channel_busy(nrf, channel)) {
-            hit_counter[len]++;
+    for (uint8_t channel = 0; channel < len && channel < 126; channel++) {
+        // switch channel
+        write_nrf_register(nrf, NRF_REG_RF_CH, channel);
+        
+        // clear interrupts/flush to ensure clean state (Optional but recommended)
+        // write_nrf_register(nrf, 0x07, 0x70); 
+
+        // wait for PLL lock + RPD sampling time
+        esp_rom_delay_us(150); 
+        
+        // read RPD (bit 0)
+        uint8_t rpd = read_nrf_register(nrf, NRF_REG_RPD);
+        if (rpd & 0x01) {
+            hit_counter[channel]++;
         }
     }
 }

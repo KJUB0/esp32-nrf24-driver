@@ -6,6 +6,7 @@
 #include "driver/gpio.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "esp_rom_sys.h"
 
 #define PIN_MISO 19 //data from radio to esp
 #define PIN_MOSI 23 //data from esp to radio
@@ -86,18 +87,22 @@ static void test_nrf_connection(nrf24_t *radio)
 void print_histogram(uint16_t *hit_counter, size_t len)
 {
     uint16_t maximum = 0;
-    uint16_t maximum_channel = 0;
+    
     for (uint16_t i = 0; i < len; i++) {
         if (hit_counter[i] > maximum) {
             maximum = hit_counter[i];
-            maximum_channel = i;
         }
     }
 
+    // Drawing logic
     for (int i = maximum; i > 0; i--) {
         for (uint16_t j = 0; j < len; j++) {
-            if (hit_counter[i] >= i)
+            if (hit_counter[j] >= i) {
                 printf("#");
+            } 
+            else {
+                printf(" "); 
+            }
         }
         printf("\n");
     }
@@ -105,37 +110,41 @@ void print_histogram(uint16_t *hit_counter, size_t len)
 
 void app_main(void)
 {
+    //initialize spi bus
     esp_err_t status_message = init_spi_bus();
 
-    if (status_message == ESP_OK) {
-        printf("[SUCCESS] SPI Bus is active on pins 18, 19, 23.\n");
-
-        nrf24_t radio; // struct for radio
-        
-        // Use library function to attach device (replaces local init_nrf_device and init_ce_pin)
-        esp_err_t status_message_nrf = nrf_attach(SPI3_HOST, PIN_CSN, PIN_CE, &radio);
-
-        if (status_message_nrf == ESP_OK) {
-            printf("NRF24 Device successfully added to the bus!\n");
-            
-            test_nrf_connection(&radio); // pass pointer to struct
-            
-            nrf_init(&radio); // call lib init
-
-            while (1) {
-                uint16_t hit_counter[127];
-                size_t band_len = 126;
-                nrf_scan_band(&radio, &hit_counter, band_len);
-            }
-
-        } else {
-            printf("Failed to add NRF24 device. Error: %s\n",
-                   esp_err_to_name(status_message_nrf));
-        }
-    } else {
+    if (status_message != ESP_OK) {
         printf("[FAIL] Could not init SPI. Error code: %d\n", status_message);
+        return;
     }
 
-    // init_ce_pin() removed because nrf_attach handles it now
+    //attach device
+    nrf24_t radio;
+    esp_err_t status_message_nrf = nrf_attach(SPI3_HOST, PIN_CSN, PIN_CE, &radio);
+
+    if (status_message_nrf != ESP_OK) {
+    printf("Failed to add NRF24 device. Error: %s\n",esp_err_to_name(status_message_nrf));
+        return;
+    }
+
+    nrf_init(&radio);
+    test_nrf_connection(&radio);
+
+    //setup memory for scanning
+    uint16_t hit_counter[128];
+    size_t band_len = 84;
+
+    while(1) {
+        memset(hit_counter, sizeof(hit_counter));
+
+        for (int i = 0; i < 50; i++) {
+            nrf_scan_band(&radio, hit_counter, band_len);
+        }
+
+        //visualize
+        print_histogram(hit_counter, band_len);
+        vTaskDelay(pdMS_TO_TICKS(200));
+    }
+
     keep_alive_loop();
 }
