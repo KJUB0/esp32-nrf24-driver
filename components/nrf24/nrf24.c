@@ -4,6 +4,8 @@
 #include "esp_system.h"
 #include "esp_rom_sys.h"
 
+// --- Internal Helper Functions ---
+
 /**
  * basic chip configuration
  * * Describes how the esp talks to  over already initialized connections
@@ -20,10 +22,38 @@ static spi_device_interface_config_t device_configuration(gpio_num_t csn)
 }
 
 /**
+ * function to assign pins and configure buses
+ */
+static spi_bus_config_t bus_configuration(int miso, int mosi, int clk) 
+{
+    printf("Inicializacia busov\n");
+
+    //bus inicialization
+    spi_bus_config_t config= {
+        .miso_io_num = miso,
+        .mosi_io_num = mosi,
+        .sclk_io_num = clk,
+        .quadwp_io_num = -1, 
+        .quadhd_io_num = -1,
+        .max_transfer_sz = 32 //bytes
+    };
+    return config;
+}
+
+/**
+ * Calls a function that assigns pins and then initializes SPi with them
+ */
+static esp_err_t init_spi_bus(spi_host_device_t host, int miso, int mosi, int clk)
+{
+    spi_bus_config_t bus_cfg = bus_configuration(miso, mosi, clk); 
+    // Uses the passed 'host' variable instead of hardcoded SPI2/SPI3
+    return spi_bus_initialize(host, &bus_cfg, SPI_DMA_CH_AUTO);
+}
+
+// --- Public API Implementation ---
+
+/**
  * Performs a single SPI transaction:
- * byte 0: register command + register address
- * byte 1: dummy byte to keep the communication flowing
- * * @return the value stored in the requested register
  */
 uint8_t read_nrf_register(nrf24_t *nrf, uint8_t reg_addr) 
 {
@@ -50,7 +80,6 @@ uint8_t read_nrf_register(nrf24_t *nrf, uint8_t reg_addr)
 
 /**
  * Writes a single byte to a specific nrf register
- * * @param payload that we send to the nrf chip
  */
 void write_nrf_register(nrf24_t *nrf, uint8_t register_address, uint8_t value)
 {
@@ -83,37 +112,27 @@ esp_err_t nrf_attach(spi_host_device_t host, gpio_num_t csn_pin, gpio_num_t ce_p
 }
 
 /**
- * Sets the power bit to 1 and also the crc and rx
- * 
- * @param nrf structure with components
+ * Sets the power bit to 1 and also the crc and rx bits
  */
 void nrf_power_up(nrf24_t *nrf)
 {
     write_nrf_register(nrf, NRF_REG_CONFIG, 0X0B);
-
-    // delay to wait for the radio to power on
     esp_rom_delay_us(2000);
 }
 
 /**
  * disables enhanced shockburst and sets data rate to 1Mbps
- * * @param nrf structure with components
  */
 void nrf_init(nrf24_t *nrf)
 {
-    uint8_t address = 0x01; //address for shockburst register
-    uint8_t value = 0x00; //we disable shockburst due to us only listening not sending anything
+    uint8_t address = 0x01; 
+    uint8_t value = 0x00; 
     write_nrf_register(nrf, address, value);
 
-    // 0000 0110 
-    // 3rd bit is 1mbps
-    // 2:1 is 0dbm output power
     value = 0x0E; 
     address = 0x06; // RF_SETUP register
     write_nrf_register(nrf, address, value);
 
-    // call the function that powers up the nrf moduke and sets crc to 
-    // and PRIM_RX to 1
     nrf_power_up(nrf);
 
     // start listening
@@ -121,26 +140,7 @@ void nrf_init(nrf24_t *nrf)
 }
 
 /**
- * Functions that writes for activity to a certainchannel, waits 150µs and then 
- * returns true for activity false for silence
- * 
- * @param nrf radio structure with components
- * @param channel that we want to listen for activity on
- */
-bool nrf_channel_busy(nrf24_t *nrf, uint8_t channel)
-{
-    write_nrf_register(nrf, NRF_REG_RF_CH, channel);
-    esp_rom_delay_us(150);
-    uint8_t rpd = read_nrf_register(nrf, NRF_REG_RPD);
-    return (rpd & 0x01);
-}
-
-/**
  * one spectrum sweep that adds hits when noise is detected
- * 
- * @param nrf radio structure
- * @param counts hits (found noise on a channel)
- * @param len size of the spectrum
  */
 void nrf_scan_band(nrf24_t *nrf, uint16_t *hit_counter, size_t len)
 {
@@ -148,8 +148,6 @@ void nrf_scan_band(nrf24_t *nrf, uint16_t *hit_counter, size_t len)
         // switch channel
         write_nrf_register(nrf, NRF_REG_RF_CH, channel);
         
-        // write_nrf_register(nrf, 0x07, 0x70); 
-        // wait for PLL lock + RPD sampling time
         esp_rom_delay_us(150); 
         
         // read RPD (bit 0)
@@ -158,4 +156,25 @@ void nrf_scan_band(nrf24_t *nrf, uint16_t *hit_counter, size_t len)
             hit_counter[channel]++;
         }
     }
+}
+
+esp_err_t setup_nrf_interface(nrf24_t *radio, nrf_config_t config) 
+{
+    // initialize the SPI Bus
+    esp_err_t err = init_spi_bus(config.host, config.miso, config.mosi, config.sclk);
+    if (err != ESP_OK) return err;
+
+    // attach the NRF device to that bus
+    err = nrf_attach(config.host, config.csn, config.ce, radio);
+    if (err != ESP_OK) return err;
+
+    // set the internal pins
+    radio->ce_pin = config.ce;
+    radio->csn_pin = config.csn;
+    radio->host = config.host; 
+
+    // power up and init the radio hardware
+    nrf_init(radio);
+    
+    return ESP_OK;
 }

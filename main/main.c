@@ -1,55 +1,12 @@
 #include <stdio.h>
 #include <stdint.h>
 #include <string.h>
-#include "nrf24.h" // Include header file
+#include "nrf24.h"
 #include "driver/spi_master.h"
 #include "driver/gpio.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "esp_rom_sys.h"
-
-#define PIN_MISO 19 //data from radio to esp
-#define PIN_MOSI 23 //data from esp to radio
-#define PIN_CLK 18 //clock
-#define PIN_CSN 5 //chip select (active low)
-#define PIN_CE 4 //chip enable
-
-/**
- * function to assign pins and configure buses
- * * This function prepares the SPI bus configuration structure.
- * It does NOT initialize the bus itself — that is done later
- * by spi_bus_initialize().
- */
-static spi_bus_config_t bus_configuration(void) 
-{
-    printf("Inicializacia busov\n");
-
-    //bus inicialization
-    spi_bus_config_t config= {
-        .miso_io_num = PIN_MISO,
-        .mosi_io_num = PIN_MOSI,
-        .sclk_io_num = PIN_CLK,
-        
-        //inicialization of pins for display to values -1 
-        //-1 tells chip that we dont use these ports
-        .quadwp_io_num = -1, 
-        .quadhd_io_num = -1,
-
-        //limit for transactions
-        .max_transfer_sz = 32 //bytes
-    };
-    return config;
-}
-
-/**
- * Calls a function that assigns pins and then initializes 
- * SPi with them
- */
-static esp_err_t init_spi_bus(void)
-{
-    spi_bus_config_t bus_cfg = bus_configuration(); //
-    return spi_bus_initialize(SPI3_HOST, &bus_cfg, SPI_DMA_CH_AUTO);
-}
 
 /**
  * infinite loop to prevent the application from exitting
@@ -69,8 +26,8 @@ static void keep_alive_loop(void)
  */
 static void test_nrf_connection(nrf24_t *radio)
 {
-    //try to read register
-    //by default the register should be at 0x00
+    // try to read register
+    // by default the register should be at 0x00
     uint8_t config_value = read_nrf_register(radio, 0x00);
 
     printf("Read CONFIG Register (0x00): 0x%02X\n", config_value);
@@ -108,41 +65,75 @@ void print_histogram(uint16_t *hit_counter, size_t len)
     }
 }
 
-void app_main(void)
+void app_main(void) 
 {
-    //initialize spi bus
-    esp_err_t status_message = init_spi_bus();
+    nrf24_t radio_left;
+    nrf24_t radio_right;
 
-    if (status_message != ESP_OK) {
-        printf("[FAIL] Could not init SPI. Error code: %d\n", status_message);
+    // first radio configuration spi2
+    nrf_config_t config_left = {
+        .host = SPI2_HOST, 
+        .miso = 19, 
+        .mosi = 23, 
+        .sclk = 18, 
+        .csn = 5, 
+        .ce = 4
+    };
+
+    //  second radio config spi3
+    nrf_config_t config_right = {
+        .host = SPI3_HOST, 
+        .miso = 12, 
+        .mosi = 13, 
+        .sclk = 14, 
+        .csn = 15, 
+        .ce = 2
+    };
+
+    // initialize both
+    printf("Initializing Left Radio...\n");
+    esp_err_t ret = setup_nrf_interface(&radio_left, config_left);
+    if (ret != ESP_OK) {
+        printf("Failed to init Left Radio: %d\n", ret);
         return;
     }
 
-    //attach device
-    nrf24_t radio;
-    esp_err_t status_message_nrf = nrf_attach(SPI3_HOST, PIN_CSN, PIN_CE, &radio);
-
-    if (status_message_nrf != ESP_OK) {
-    printf("Failed to add NRF24 device. Error: %s\n",esp_err_to_name(status_message_nrf));
+    printf("Initializing Right Radio...\n");
+    ret = setup_nrf_interface(&radio_right, config_right);
+    if (ret != ESP_OK) {
+        printf("Failed to init Right Radio: %d\n", ret);
         return;
     }
 
-    nrf_init(&radio);
-    test_nrf_connection(&radio);
+    // connections test
+    printf("--- Testing Left Radio ---\n");
+    test_nrf_connection(&radio_left);
+    
+    printf("--- Testing Right Radio ---\n");
+    test_nrf_connection(&radio_right);
 
-    //setup memory for scanning
-    uint16_t hit_counter[128];
+    // band length scanning parameter
     size_t band_len = 84;
 
     while(1) {
-        memset(hit_counter, sizeof(hit_counter));
+        // clear the memory inside the structs
+        memset(radio_left.hit_counter, 0, sizeof(radio_left.hit_counter));
+        memset(radio_right.hit_counter, 0, sizeof(radio_right.hit_counter));
 
+        // scan loops
         for (int i = 0; i < 50; i++) {
-            nrf_scan_band(&radio, hit_counter, band_len);
+            // pass the internal hit_counter to the function
+            nrf_scan_band(&radio_left, radio_left.hit_counter, band_len);
+            nrf_scan_band(&radio_right, radio_right.hit_counter, band_len);
         }
 
-        //visualize
-        print_histogram(hit_counter, band_len);
+        // visualize Results
+        printf("\n--- Left Antenna ---\n");
+        print_histogram(radio_left.hit_counter, band_len);
+
+        printf("\n--- Right Antenna ---\n");
+        print_histogram(radio_right.hit_counter, band_len);
+
         vTaskDelay(pdMS_TO_TICKS(200));
     }
 
