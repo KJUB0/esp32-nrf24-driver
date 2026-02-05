@@ -46,8 +46,7 @@ static spi_bus_config_t bus_configuration(int miso, int mosi, int clk)
 static esp_err_t init_spi_bus(spi_host_device_t host, int miso, int mosi, int clk)
 {
     spi_bus_config_t bus_cfg = bus_configuration(miso, mosi, clk); 
-    // Uses the passed 'host' variable instead of hardcoded SPI2/SPI3
-    return spi_bus_initialize(host, &bus_cfg, SPI_DMA_CH_AUTO);
+    return spi_bus_initialize(host, &bus_cfg, SPI_DMA_DISABLED);
 }
 
 // --- Public API Implementation ---
@@ -97,7 +96,7 @@ esp_err_t nrf_attach(spi_host_device_t host, gpio_num_t csn_pin, gpio_num_t ce_p
 {
     gpio_reset_pin(ce_pin);
     gpio_set_direction(ce_pin, GPIO_MODE_OUTPUT);
-    gpio_set_level(ce_pin, 0);
+    gpio_set_level(csn_pin, 1); 
 
     // Configure SPI Device
     spi_device_interface_config_t cfg = device_configuration(csn_pin);
@@ -125,19 +124,25 @@ void nrf_power_up(nrf24_t *nrf)
  */
 void nrf_init(nrf24_t *nrf)
 {
-    uint8_t address = 0x01; 
-    uint8_t value = 0x00; 
-    write_nrf_register(nrf, address, value);
+    gpio_set_level(nrf->ce_pin, 0);
 
-    value = 0x0E; 
-    address = 0x06; // RF_SETUP register
-    write_nrf_register(nrf, address, value);
+    // disable shockburst
+    write_nrf_register(nrf, NRF_REG_EN_AA, 0x00);
 
-    nrf_power_up(nrf);
+    // RF_SETUP: 1 Mbps, 0 dBm
+    write_nrf_register(nrf, NRF_REG_RF_SETUP, 0x0E);
 
-    // start listening
+    // power up
+    write_nrf_register(nrf, NRF_REG_CONFIG, 0x0B);
+    esp_rom_delay_us(2000);
+
+    // RX mode + CRC
+    write_nrf_register(nrf, NRF_REG_CONFIG, 0x0F);
+    esp_rom_delay_us(130);
+
     gpio_set_level(nrf->ce_pin, 1);
 }
+
 
 /**
  * one spectrum sweep that adds hits when noise is detected
@@ -160,21 +165,23 @@ void nrf_scan_band(nrf24_t *nrf, uint16_t *hit_counter, size_t len)
 
 esp_err_t setup_nrf_interface(nrf24_t *radio, nrf_config_t config) 
 {
-    // initialize the SPI Bus
-    esp_err_t err = init_spi_bus(config.host, config.miso, config.mosi, config.sclk);
-    if (err != ESP_OK) return err;
+    // store config
+    radio->host = config.host;
+    radio->ce_pin = config.ce;
+    radio->csn_pin = config.csn;
+    radio->miso_pin = config.miso;
+    radio->mosi_pin = config.mosi;
+    radio->clk_pin  = config.sclk;
 
-    // attach the NRF device to that bus
+    // init spi bus with dma disabled
+    esp_err_t err = init_spi_bus(config.host, config.miso, config.mosi, config.sclk);
+    if (err != ESP_OK && err != ESP_ERR_INVALID_STATE) return err;
+
     err = nrf_attach(config.host, config.csn, config.ce, radio);
     if (err != ESP_OK) return err;
 
-    // set the internal pins
-    radio->ce_pin = config.ce;
-    radio->csn_pin = config.csn;
-    radio->host = config.host; 
-
-    // power up and init the radio hardware
+    // init nrf hardware
     nrf_init(radio);
-    
+
     return ESP_OK;
 }

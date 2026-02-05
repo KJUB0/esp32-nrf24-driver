@@ -76,8 +76,8 @@ void app_main(void)
         .miso = 19, 
         .mosi = 23, 
         .sclk = 18, 
-        .csn = 5, 
-        .ce = 4
+        .csn = 21, 
+        .ce = 22
     };
 
     //  second radio config spi3
@@ -87,7 +87,7 @@ void app_main(void)
         .mosi = 13, 
         .sclk = 14, 
         .csn = 15, 
-        .ce = 2
+        .ce = 16
     };
 
     // initialize both
@@ -116,25 +116,23 @@ void app_main(void)
     size_t band_len = 84;
 
     while(1) {
-        // clear the memory inside the structs
+        // reset
         memset(radio_left.hit_counter, 0, sizeof(radio_left.hit_counter));
         memset(radio_right.hit_counter, 0, sizeof(radio_right.hit_counter));
 
-        // scan loops
+        // scan
         for (int i = 0; i < 50; i++) {
-            // pass the internal hit_counter to the function
             nrf_scan_band(&radio_left, radio_left.hit_counter, band_len);
             nrf_scan_band(&radio_right, radio_right.hit_counter, band_len);
         }
 
-        // visualize Results
-        printf("\n--- Left Antenna ---\n");
-        print_histogram(radio_left.hit_counter, band_len);
+        /**
+         * send_csv_data(radio_left.hit_counter, band_len, "LEFT");
+         * send_csv_data(radio_right.hit_counter, band_len, "RIGHT");
+         * 
+         */
 
-        printf("\n--- Right Antenna ---\n");
-        print_histogram(radio_right.hit_counter, band_len);
-
-        vTaskDelay(pdMS_TO_TICKS(200));
+        vTaskDelay(pdMS_TO_TICKS(100)); 
     }
 
     keep_alive_loop();
