@@ -41,28 +41,25 @@ static void test_nrf_connection(nrf24_t *radio)
     }
 }
 
-void print_histogram(uint16_t *hit_counter, size_t len)
+/**
+ * function that prints the data for poython script for monitoring
+ * 
+ * @param  Number of hits detected on the channel
+ * @param lenght of bluetooth band
+ * @param if the antenna is left or right
+ */
+void send_csv_data(uint16_t *hit_counter, size_t len, const char* label) 
 {
-    uint16_t maximum = 0;
+    // send label that the python script expects
+    printf("DATA_%s:", label); 
     
-    for (uint16_t i = 0; i < len; i++) {
-        if (hit_counter[i] > maximum) {
-            maximum = hit_counter[i];
+    for (int i = 0; i < len; i++) {
+        printf("%d", hit_counter[i]);
+        if (i < len - 1) {
+            printf(",");
         }
     }
-
-    // Drawing logic
-    for (int i = maximum; i > 0; i--) {
-        for (uint16_t j = 0; j < len; j++) {
-            if (hit_counter[j] >= i) {
-                printf("#");
-            } 
-            else {
-                printf(" "); 
-            }
-        }
-        printf("\n");
-    }
+    printf("\n"); // end of line that triggers readline in python
 }
 
 void app_main(void) 
@@ -116,23 +113,23 @@ void app_main(void)
     size_t band_len = 84;
 
     while(1) {
-        // reset
+        // Clear previous results
         memset(radio_left.hit_counter, 0, sizeof(radio_left.hit_counter));
         memset(radio_right.hit_counter, 0, sizeof(radio_right.hit_counter));
 
-        // scan
+        // Perform scans
         for (int i = 0; i < 50; i++) {
             nrf_scan_band(&radio_left, radio_left.hit_counter, band_len);
             nrf_scan_band(&radio_right, radio_right.hit_counter, band_len);
+            // Give the CPU a tiny break to prevent watchdog issues
+            vTaskDelay(1); 
         }
 
-        /**
-         * send_csv_data(radio_left.hit_counter, band_len, "LEFT");
-         * send_csv_data(radio_right.hit_counter, band_len, "RIGHT");
-         * 
-         */
+        // SEND DATA TO PYTHON
+        send_csv_data(radio_left.hit_counter, band_len, "LEFT");
+        send_csv_data(radio_right.hit_counter, band_len, "RIGHT");
 
-        vTaskDelay(pdMS_TO_TICKS(100)); 
+        vTaskDelay(pdMS_TO_TICKS(200)); 
     }
 
     keep_alive_loop();
