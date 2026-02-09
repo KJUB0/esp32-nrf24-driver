@@ -1,0 +1,19 @@
+{
+	"folders": [
+		{
+			"name": "project-name",
+			"path": ".."
+		}
+	],
+	"settings": {
+		"C_Cpp.intelliSenseEngine": "default",
+		"idf.openOcdConfigs": [
+			"board/esp32-wrover-kit-3.3v.cfg"
+		],
+		"idf.customExtraVars": {
+			"IDF_TARGET": "esp32"
+		},
+		"idf.flashType": "UART",
+		"idf.currentSetup": "/home/dzejkop/esp/v5.5.2/esp-idf"
+	}
+}
