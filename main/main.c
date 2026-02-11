@@ -110,7 +110,7 @@ void app_main(void)
     test_nrf_connection(&radio_right);
 
     // band length scanning parameter
-    size_t band_len = 84;
+    size_t band_len = 40;
 
     while(1) {
         // Clear previous results
@@ -119,8 +119,8 @@ void app_main(void)
 
         // Perform scans
         for (int i = 0; i < 50; i++) {
-            nrf_scan_band(&radio_left, radio_left.hit_counter, band_len);
-            nrf_scan_band(&radio_right, radio_right.hit_counter, band_len);
+            nrf_scan_band(&radio_left, radio_left.hit_counter, 0, band_len);
+            nrf_scan_band(&radio_right, radio_right.hit_counter, 40, band_len);
             // Give the CPU a tiny break to prevent watchdog issues
             vTaskDelay(1); 
         }

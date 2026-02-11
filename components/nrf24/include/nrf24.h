@@ -60,7 +60,7 @@ void write_nrf_register(nrf24_t *nrf, uint8_t reg_addr, uint8_t value);
 uint8_t read_nrf_register(nrf24_t *nrf, uint8_t reg_addr);
 
 // loops through the whole bluetooth spectrum and detects hits on channels
-void nrf_scan_band(nrf24_t *nrf, uint16_t *hit_counter, size_t len);
+void nrf_scan_band(nrf24_t *nrf, uint16_t *hit_counter,uint8_t start_channel, size_t len);
 
 // build radio
 esp_err_t setup_nrf_interface(nrf24_t *radio, nrf_config_t config);

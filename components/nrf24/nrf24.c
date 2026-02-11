@@ -147,18 +147,22 @@ void nrf_init(nrf24_t *nrf)
 /**
  * one spectrum sweep that adds hits when noise is detected
  */
-void nrf_scan_band(nrf24_t *nrf, uint16_t *hit_counter, size_t len)
+void nrf_scan_band(nrf24_t *nrf, uint16_t *hit_counter, uint8_t start_channel, size_t len)
 {
-    for (uint8_t channel = 0; channel < len && channel < 126; channel++) {
+    for (uint8_t i = 0; i < len; i++) {
+        uint8_t real_channel = start_channel + i; // Calculate actual frequency
+        
+        if (real_channel > 125) break; // Safety check
+
         // switch channel
-        write_nrf_register(nrf, NRF_REG_RF_CH, channel);
+        write_nrf_register(nrf, NRF_REG_RF_CH, real_channel);
         
         esp_rom_delay_us(150); 
         
         // read RPD (bit 0)
         uint8_t rpd = read_nrf_register(nrf, NRF_REG_RPD);
         if (rpd & 0x01) {
-            hit_counter[channel]++;
+            hit_counter[i]++; // Store in index 0 to 39
         }
     }
 }
