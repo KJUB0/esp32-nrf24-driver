@@ -159,11 +159,14 @@ void nrf_scan_band(nrf24_t *nrf, uint16_t *hit_counter, uint8_t start_channel, s
         
         esp_rom_delay_us(150); 
         
-        // read RPD (bit 0)
+        gpio_set_level(nrf->ce_pin, 0);
+        esp_rom_delay_us(5);
+        gpio_set_level(nrf->ce_pin, 1);
+
+        esp_rom_delay_us(200);
+
+        // Read RPD
         uint8_t rpd = read_nrf_register(nrf, NRF_REG_RPD);
-        if (rpd & 0x01) {
-            hit_counter[i]++; // Store in index 0 to 39
-        }
     }
 }
 
